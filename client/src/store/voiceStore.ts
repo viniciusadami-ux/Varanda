@@ -8,6 +8,9 @@ interface VoiceState {
   cameraOn: boolean;
   screenSharing: boolean;
   isSpeaking: boolean;
+  micError: string | null;
+  screenShareError: string | null;
+  screenSharePending: boolean;
   localStream: MediaStream | null;
   localStreamChannelId: number | null;
   cameraStream: MediaStream | null;
@@ -23,6 +26,9 @@ interface VoiceState {
   setCameraOn: (v: boolean) => void;
   setScreenSharing: (v: boolean) => void;
   setIsSpeaking: (v: boolean) => void;
+  setMicError: (message: string | null) => void;
+  setScreenShareError: (message: string | null) => void;
+  setScreenSharePending: (pending: boolean) => void;
   setLocalStream: (s: MediaStream | null, channelId?: number | null) => void;
   setCameraStream: (s: MediaStream | null) => void;
   setScreenStream: (s: MediaStream | null) => void;
@@ -39,6 +45,9 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   cameraOn: false,
   screenSharing: false,
   isSpeaking: false,
+  micError: null,
+  screenShareError: null,
+  screenSharePending: false,
   localStream: null,
   localStreamChannelId: null,
   cameraStream: null,
@@ -60,6 +69,9 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setCameraOn: (cameraOn) => set({ cameraOn }),
   setScreenSharing: (screenSharing) => set({ screenSharing }),
   setIsSpeaking: (isSpeaking) => set({ isSpeaking }),
+  setMicError: (micError) => set({ micError }),
+  setScreenShareError: (screenShareError) => set({ screenShareError }),
+  setScreenSharePending: (screenSharePending) => set({ screenSharePending }),
   setLocalStream: (localStream, channelId = null) =>
     set({ localStream, localStreamChannelId: localStream ? channelId : null }),
   setCameraStream: (cameraStream) => set({ cameraStream }),
@@ -92,6 +104,9 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       cameraOn: false,
       screenSharing: false,
       isSpeaking: false,
+      micError: null,
+      screenShareError: null,
+      screenSharePending: false,
       localStream: null,
       localStreamChannelId: null,
       cameraStream: null,

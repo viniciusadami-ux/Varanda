@@ -30,6 +30,16 @@ let serverRestartTimer;
 let serverRestartAttempts = 0;
 let shouldKeepServerRunning = false;
 
+// Screen-share source ids are opaque, short-lived capabilities. The renderer
+// may list sources after a user gesture, but the main process only accepts an
+// id from that exact list and consumes the selection on the next gestured
+// getDisplayMedia request. Audio uses Electron's Windows system loopback only
+// when the renderer explicitly requested it.
+const SHARE_SOURCE_TTL_MS = 30_000;
+const SHARE_SELECTION_TTL_MS = 15_000;
+const issuedShareSources = new Map();
+const pendingShareSelections = new Map();
+
 function getLocalServerJwtSecret() {
   // A packaged host runs the server in production mode, where JWT_SECRET is
   // intentionally mandatory. Create it once in Electron's private userData
@@ -68,6 +78,27 @@ function isTrustedAppOrigin(origin) {
   }
 }
 
+function assertTrustedIpcSender(event) {
+  const senderUrl = event.senderFrame?.url || event.sender.getURL();
+  if (!mainWindow || event.sender !== mainWindow.webContents || !isTrustedAppOrigin(senderUrl)) {
+    throw new Error('Origem nao autorizada.');
+  }
+  return event.sender.id;
+}
+
+function clearShareRequest(webContentsId) {
+  issuedShareSources.delete(webContentsId);
+  pendingShareSelections.delete(webContentsId);
+}
+
+async function getCurrentShareSources() {
+  return desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 320, height: 180 },
+    fetchWindowIcons: true,
+  });
+}
+
 function configureMediaPermissions() {
   const appSession = session.defaultSession;
 
@@ -81,19 +112,39 @@ function configureMediaPermissions() {
   });
 
   // Electron does not show Chromium's normal display picker automatically.
-  // Supply the primary desktop source only after a user-initiated request from
-  // our trusted renderer. This makes navigator.getDisplayMedia work in the
-  // desktop app just as it does in Chrome.
+  // A trusted renderer first lists and selects an opaque source through IPC.
+  // The choice is consumed once, expires quickly, and is still rejected unless
+  // Chromium reports that getDisplayMedia came from a user gesture.
   appSession.setDisplayMediaRequestHandler(async (request, callback) => {
-    if (!request.videoRequested || !request.userGesture || !isTrustedAppOrigin(request.securityOrigin)) {
+    const requestOrigin = request.frame?.url || request.securityOrigin;
+    const webContentsId = mainWindow?.webContents.id;
+    const pending = webContentsId ? pendingShareSelections.get(webContentsId) : null;
+    if (webContentsId) pendingShareSelections.delete(webContentsId);
+
+    if (
+      !request.videoRequested ||
+      !request.userGesture ||
+      !isTrustedAppOrigin(requestOrigin) ||
+      !pending ||
+      pending.expiresAt < Date.now()
+    ) {
       callback({});
       return;
     }
     try {
-      const sources = await desktopCapturer.getSources({ types: ['screen'] });
-      callback(sources[0] ? { video: sources[0] } : {});
+      const sources = await getCurrentShareSources();
+      const selected = sources.find((source) => source.id === pending.sourceId);
+      if (!selected) {
+        callback({});
+        return;
+      }
+      const response = { video: selected };
+      if (pending.includeAudio && request.audioRequested && process.platform === 'win32') {
+        response.audio = 'loopback';
+      }
+      callback(response);
     } catch (error) {
-      console.error('[Screen share] Não foi possível obter fontes de tela:', error);
+      console.error('[Screen share] Selected source is no longer available:', error);
       callback({});
     }
   });
@@ -161,6 +212,8 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    issuedShareSources.clear();
+    pendingShareSelections.clear();
     mainWindow = null;
   });
 }
@@ -357,6 +410,57 @@ ipcMain.handle('get-local-ip', async () => {
 });
 
 ipcMain.handle('get-invite-code', () => generateInviteCode());
+
+ipcMain.handle('list-share-sources', async (event) => {
+  const webContentsId = assertTrustedIpcSender(event);
+  const sources = await getCurrentShareSources();
+  issuedShareSources.set(webContentsId, {
+    expiresAt: Date.now() + SHARE_SOURCE_TTL_MS,
+    ids: new Set(sources.map((source) => source.id)),
+  });
+  pendingShareSelections.delete(webContentsId);
+  return sources.map((source) => ({
+    // Contract mirrored by client/src/types/screenShare.ts. The id is opaque
+    // and valid only for the most recently returned list.
+    id: source.id,
+    name: String(source.name || '').slice(0, 200),
+    kind: source.id.startsWith('screen:') ? 'screen' : 'window',
+    thumbnailDataUrl: source.thumbnail?.isEmpty() ? null : source.thumbnail?.toDataURL() || null,
+    appIconDataUrl: source.appIcon?.isEmpty() ? null : source.appIcon?.toDataURL() || null,
+  }));
+});
+
+ipcMain.handle('select-share-source', (event, selection) => {
+  const webContentsId = assertTrustedIpcSender(event);
+  const issued = issuedShareSources.get(webContentsId);
+  const sourceId = selection?.sourceId;
+  const includeAudio = selection?.includeAudio;
+  issuedShareSources.delete(webContentsId);
+
+  if (
+    !issued ||
+    issued.expiresAt < Date.now() ||
+    typeof sourceId !== 'string' ||
+    !issued.ids.has(sourceId) ||
+    typeof includeAudio !== 'boolean'
+  ) {
+    pendingShareSelections.delete(webContentsId);
+    throw new Error('Fonte de compartilhamento invalida ou expirada.');
+  }
+
+  pendingShareSelections.set(webContentsId, {
+    sourceId,
+    includeAudio,
+    expiresAt: Date.now() + SHARE_SELECTION_TTL_MS,
+  });
+  return { selected: true };
+});
+
+ipcMain.handle('clear-share-selection', (event) => {
+  const webContentsId = assertTrustedIpcSender(event);
+  clearShareRequest(webContentsId);
+  return { cleared: true };
+});
 
 ipcMain.handle('open-external', async (_event, url) => {
   if (typeof url !== 'string') throw new Error('URL inválida.');

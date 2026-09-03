@@ -10,6 +10,8 @@ import {
 } from '@/components/Sidebar';
 import { ChatPanel } from '@/components/ChatPanel';
 import { VoicePanel } from '@/components/VoicePanel';
+import { VoiceRuntime } from '@/components/VoiceRuntime';
+import { VoiceMiniPanel } from '@/components/VoiceMiniPanel';
 import { SettingsPage } from '@/components/SettingsPage';
 import { ProfileModal, CreateServerModal } from '@/components/Modals';
 import { serversApi } from '@/lib/api';
@@ -142,6 +144,8 @@ export function AppShell() {
         </div>
       )}
 
+      <VoiceRuntime playVoiceAudio={!inVoice} />
+      {!inVoice && <VoiceMiniPanel />}
       {showProfile && <ProfileModal />}
       {showCreateServer && <CreateServerModal />}
     </div>

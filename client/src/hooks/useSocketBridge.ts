@@ -7,6 +7,7 @@ import {
   handleOffer,
   closePeer,
   closeAllPeers,
+  clearRemoteScreenShare,
   configureIceServers,
   markRemoteScreenShare,
 } from '@/lib/webrtc';
@@ -15,6 +16,7 @@ import { useFriendStore } from '@/store/friendStore';
 import { useMessageStore } from '@/store/messageStore';
 import { useServerStore } from '@/store/serverStore';
 import { useVoiceStore } from '@/store/voiceStore';
+import { disconnectVoiceSession } from '@/lib/voiceSession';
 import type {
   DirectMessage,
   Message,
@@ -50,12 +52,9 @@ export function useSocketBridge() {
   const localStream = useVoiceStore((s) => s.localStream);
   const localStreamChannelId = useVoiceStore((s) => s.localStreamChannelId);
 
-  const wiredRef = useRef(false);
-
   useEffect(() => {
     if (!token || !user) {
       disconnectSocket();
-      wiredRef.current = false;
       return;
     }
     // New token → re-create socket so handshake picks it up.
@@ -201,6 +200,8 @@ export function useSocketBridge() {
 
     const onVoiceJoinRejected = (payload: { channelId: number; reason: 'capacity_reached' }) => {
       if (useAppStore.getState().inVoiceChannel?.id === payload.channelId) {
+        disconnectVoiceSession();
+        useVoiceStore.getState().setMicError('O canal de voz atingiu o limite de participantes.');
         console.warn('[voice] Não foi possível entrar: limite de participantes atingido.');
       }
     };
@@ -247,7 +248,34 @@ export function useSocketBridge() {
     const onScreenShareStopped = (payload: { channelId: number; userId: number }) => {
       if (useAppStore.getState().inVoiceChannel?.id === payload.channelId) {
         updateVoiceParticipant(payload.userId, { screenSharing: false, screenStreamId: null });
-        useVoiceStore.getState().setRemoteScreenStream(payload.userId, null);
+        clearRemoteScreenShare(payload.userId);
+      }
+    };
+
+    const onServerChannelsUpdated = async (payload: { serverId: number }) => {
+      const activeVoiceChannel = useAppStore.getState().inVoiceChannel;
+      if (!activeVoiceChannel || activeVoiceChannel.server_id !== payload.serverId) return;
+      try {
+        const appState = useAppStore.getState();
+        const baseURL =
+          (import.meta.env.VITE_API_URL as string | undefined)?.trim() ||
+          `http://${appState.serverUrl}:${appState.serverPort}`;
+        const response = await fetch(`${baseURL}/api/servers/${payload.serverId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const detail = await response.json();
+        const channelStillExists =
+          Array.isArray(detail.channels) &&
+          detail.channels.some(
+            (channel: { id: number; type: string }) =>
+              channel.id === activeVoiceChannel.id && channel.type === 'voice'
+          );
+        if (!channelStillExists && useAppStore.getState().inVoiceChannel?.id === activeVoiceChannel.id) {
+          disconnectVoiceSession();
+        }
+      } catch {
+        // A transient refresh failure is not proof that the channel was removed.
       }
     };
 
@@ -298,6 +326,7 @@ export function useSocketBridge() {
     socket.on('new_dm', onNewDm);
     socket.on('voice_ice_servers', onVoiceIceServers);
     socket.on('voice_join_rejected', onVoiceJoinRejected);
+    socket.on('server_channels_updated', onServerChannelsUpdated);
     socket.on('voice_participants', onVoiceParticipants);
     socket.on('user_joined_voice', onUserJoinedVoice);
     socket.on('user_left_voice', onUserLeftVoice);
@@ -311,8 +340,6 @@ export function useSocketBridge() {
     socket.on('webrtc_answer', onWebRTCAnswer);
     socket.on('webrtc_ice_candidate', onWebRTCIceCandidate);
     socket.on('disconnect', onDisconnect);
-
-    wiredRef.current = true;
 
     // Register all lifecycle handlers before dialing. refreshSocketAuth can
     // hand us an already connected socket after a token refresh, so handle
@@ -330,6 +357,7 @@ export function useSocketBridge() {
       socket.off('new_dm', onNewDm);
       socket.off('voice_ice_servers', onVoiceIceServers);
       socket.off('voice_join_rejected', onVoiceJoinRejected);
+      socket.off('server_channels_updated', onServerChannelsUpdated);
       socket.off('voice_participants', onVoiceParticipants);
       socket.off('user_joined_voice', onUserJoinedVoice);
       socket.off('user_left_voice', onUserLeftVoice);
@@ -343,10 +371,8 @@ export function useSocketBridge() {
       socket.off('webrtc_answer', onWebRTCAnswer);
       socket.off('webrtc_ice_candidate', onWebRTCIceCandidate);
       socket.off('disconnect', onDisconnect);
-      // Tear down all peer connections when the bridge unmounts (e.g. logout).
-      closeAllPeers();
     };
-  }, [token, user]);
+  }, [token, user?.id]);
 
   // Channel enter/leave side-effects.
   useEffect(() => {
@@ -438,8 +464,5 @@ export function useSocketBridge() {
       displayName: user.displayName,
       avatar: user.avatar,
     });
-    return () => {
-      socketEmit.leaveVoice(inVoiceChannel.id, user.id);
-    };
   }, [inVoiceChannel?.id, token, user?.id, localStream, localStreamChannelId]);
 }

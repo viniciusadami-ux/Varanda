@@ -16,6 +16,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { channelsApi, friendsApi, serversApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
+import { disconnectVoiceSession, joinVoiceSession } from '@/lib/voiceSession';
 import { useAppStore } from '@/store/appStore';
 import { useServerStore } from '@/store/serverStore';
 import { useFriendStore } from '@/store/friendStore';
@@ -210,7 +211,6 @@ export function ChannelSidebar() {
   const currentChannelId = useServerStore((s) => s.currentChannelId);
   const setCurrentChannelId = useServerStore((s) => s.setCurrentChannelId);
   const inVoiceChannel = useAppStore((s) => s.inVoiceChannel);
-  const setInVoiceChannel = useAppStore((s) => s.setInVoiceChannel);
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -268,6 +268,7 @@ export function ChannelSidebar() {
     if (!window.confirm('Deseja realmente excluir este canal?')) return;
     try {
       await channelsApi.delete(id);
+      if (inVoiceChannel?.id === id) disconnectVoiceSession();
       setChannels(channels.filter((c) => c.id !== id));
       if (currentChannelId === id) setCurrentChannelId(null);
     } catch (e) {
@@ -417,7 +418,6 @@ export function ChannelSidebar() {
                 onClick={() => {
                   if (renameId === c.id) return;
                   setCurrentChannelId(c.id);
-                  setInVoiceChannel(null);
                 }}
               >
                 <span className="text-base leading-none opacity-70">#</span>
@@ -524,7 +524,7 @@ export function ChannelSidebar() {
                 onClick={() => {
                   if (renameId === c.id) return;
                   setCurrentChannelId(c.id);
-                  setInVoiceChannel(c);
+                  joinVoiceSession(c);
                 }}
               >
                 <Headphones className="w-4 h-4 opacity-70" />
@@ -610,7 +610,6 @@ export function FriendsSidebar() {
   const setCurrentDmUser = useAppStore((s) => s.setCurrentDmUser);
   const setActivePanel = useAppStore((s) => s.setActivePanel);
   const setCurrentChannelId = useServerStore((s) => s.setCurrentChannelId);
-  const setInVoiceChannel = useAppStore((s) => s.setInVoiceChannel);
   const setCurrentServer = useServerStore((s) => s.setCurrentServer);
 
   const friends = useFriendStore((s) => s.friends);
@@ -676,7 +675,6 @@ export function FriendsSidebar() {
   const openDm = (friendId: number, username: string, displayName: string | null, avatar: string | null) => {
     setCurrentServer(null);
     setCurrentChannelId(null);
-    setInVoiceChannel(null);
     setCurrentDmUser({ id: friendId, username, displayName, avatar });
     setActivePanel('friends');
   };
