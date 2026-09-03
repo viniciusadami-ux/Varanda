@@ -121,8 +121,19 @@ export const socketEmit = {
   toggleCamera: (channelId: number, userId: number, cameraOn: boolean) =>
     getSocket().emit('toggle_camera', { channelId, userId, cameraOn }),
 
-  sendDm: (senderId: number, receiverId: number, content: string) =>
-    getSocket().emit('send_dm', { senderId, receiverId, content }),
+  sendDm: (
+    senderId: number,
+    receiverId: number,
+    content: string,
+    ack?: (res: { success?: boolean; error?: string; message?: DirectMessage }) => void
+  ) => {
+    const socket = getSocket();
+    if (typeof ack === 'function') {
+      socket.emit('send_dm', { senderId, receiverId, content }, ack);
+    } else {
+      socket.emit('send_dm', { senderId, receiverId, content });
+    }
+  },
 
   updateStatus: (userId: number, status: 'online' | 'idle' | 'dnd' | 'invisible') =>
     getSocket().emit('update_status', { userId, status }),
@@ -136,8 +147,11 @@ export interface IncomingEvents {
   user_typing: { channelId: number; userId: number; username: string };
 
   user_status: { userId: number; status: UserStatus };
+  presence_snapshot: Record<string, UserStatus>;
 
   new_dm: DirectMessage;
+  dm_error: { error: string };
+  dm_sent: { message: DirectMessage };
 
   voice_participants: { channelId: number; participants: VoiceParticipant[]; connectTo?: string[] };
   voice_ice_servers: { iceServers: RTCIceServer[] };

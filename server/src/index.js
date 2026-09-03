@@ -178,6 +178,59 @@ initDatabase();
 
 const voiceChannels = new Map(); // channelId -> Map<userId, participantInfo>
 
+// Presence: active sockets per userId (supports multi-instance)
+const activeSocketsByUser = new Map(); // userId -> Set<socketId>
+const pendingOfflineTimers = new Map(); // userId -> timeoutId
+
+function getEffectiveStatus(dbStatus) {
+  return dbStatus === 'invisible' ? 'offline' : dbStatus;
+}
+
+function broadcastPresenceToFriends(userId, effectiveStatus) {
+  // Friends-only broadcast, not global. Queries accepted friendships.
+  getDb().all(
+    `SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as friend_id
+     FROM friends WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'`,
+    [userId, userId, userId],
+    (err, rows) => {
+      if (err || !rows) return;
+      for (const row of rows) {
+        const friendId = row.friend_id;
+        io.to(`user_${friendId}`).emit('user_status', { userId, status: effectiveStatus });
+      }
+    }
+  );
+}
+
+function sendPresenceSnapshot(targetSocket, userId) {
+  getDb().all(
+    `SELECT
+       CASE WHEN f.sender_id = ? THEN f.receiver_id ELSE f.sender_id END as friend_id,
+       u.status as friend_status
+     FROM friends f
+     JOIN users u ON u.id = CASE WHEN f.sender_id = ? THEN f.receiver_id ELSE f.sender_id END
+     WHERE (f.sender_id = ? OR f.receiver_id = ?) AND f.status = 'accepted'`,
+    [userId, userId, userId, userId],
+    (err, rows) => {
+      if (err || !rows) {
+        targetSocket.emit('presence_snapshot', {});
+        return;
+      }
+      const snapshot = {};
+      for (const row of rows) {
+        let s = row.friend_status || 'offline';
+        // If friend has active socket but DB says offline (race), treat as online
+        if (activeSocketsByUser.has(row.friend_id) && s === 'offline') s = 'online';
+        const effective = getEffectiveStatus(s);
+        snapshot[row.friend_id] = effective;
+        // Back-compat: also emit individual user_status for older clients
+        targetSocket.emit('user_status', { userId: row.friend_id, status: effective });
+      }
+      targetSocket.emit('presence_snapshot', snapshot);
+    }
+  );
+}
+
 // Socket.IO handlers — every authenticated user is identified by
 // `socket.data.user.id` from the JWT (set in io.use middleware above).
 // Client-supplied userId/senderId is NEVER trusted.
@@ -192,6 +245,34 @@ io.on('connection', (socket) => {
   // Compatibility shim: previous code stored socket.userId; downstream
   // events (webrtc_offer/answer/ice) read socket.userId. Keep both in sync.
   socket.userId = socket.data.user.id;
+
+  // Presence tracking: multi-socket support with reconnection grace
+  const presenceUserId = socket.data.user.id;
+  let presenceSet = activeSocketsByUser.get(presenceUserId);
+  if (!presenceSet) {
+    presenceSet = new Set();
+    activeSocketsByUser.set(presenceUserId, presenceSet);
+  }
+  if (pendingOfflineTimers.has(presenceUserId)) {
+    clearTimeout(pendingOfflineTimers.get(presenceUserId));
+    pendingOfflineTimers.delete(presenceUserId);
+  }
+  const wasFirstPresence = presenceSet.size === 0;
+  presenceSet.add(socket.id);
+  if (wasFirstPresence) {
+    getDb().get('SELECT status FROM users WHERE id = ?', [presenceUserId], (pErr, pRow) => {
+      if (pErr || !pRow) return;
+      const dbStatus = pRow.status || 'offline';
+      if (dbStatus === 'offline') {
+        getDb().run('UPDATE users SET status = ? WHERE id = ?', ['online', presenceUserId], () => {
+          broadcastPresenceToFriends(presenceUserId, 'online');
+        });
+      } else if (dbStatus !== 'invisible') {
+        broadcastPresenceToFriends(presenceUserId, getEffectiveStatus(dbStatus));
+      }
+    });
+  }
+  sendPresenceSnapshot(socket, presenceUserId);
 
   // join_server validates that the user is actually a member of the server.
   socket.on('join_server', (serverId) => {
@@ -687,34 +768,59 @@ io.on('connection', (socket) => {
   });
 
   // Direct messages — senderId is ALWAYS derived from socket.data.user.id.
-  socket.on('send_dm', (data) => {
+  socket.on('send_dm', (data, ack) => {
     const { receiverId, content } = data || {};
-    if (!Number.isInteger(receiverId) || typeof content !== 'string' || !content.trim() || content.length > MAX_DM_LENGTH) return;
-    if (!allowSocketEvent('send_dm')) return;
     const senderId = socket.data.user.id;
-    if (receiverId === senderId) return;
+    const respond = (payload) => {
+      if (typeof ack === 'function') {
+        try { ack(payload); } catch { /* ignore */ }
+      }
+      if (payload?.error) socket.emit('dm_error', { error: payload.error });
+      if (payload?.success) socket.emit('dm_sent', { message: payload.message });
+    };
+    if (!Number.isInteger(receiverId) || typeof content !== 'string' || !content.trim() || content.length > MAX_DM_LENGTH) {
+      respond({ error: 'Conteúdo inválido' });
+      return;
+    }
+    if (!allowSocketEvent('send_dm')) {
+      respond({ error: 'Muitas mensagens. Aguarde.' });
+      return;
+    }
+    if (receiverId === senderId) {
+      respond({ error: 'Não pode enviar para si mesmo' });
+      return;
+    }
     getDb().get(
       `SELECT 1 FROM friends
        WHERE status = 'accepted'
        AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))`,
       [senderId, receiverId, receiverId, senderId],
       (relationshipError, friendship) => {
-        if (relationshipError || !friendship) return;
+        if (relationshipError || !friendship) {
+          respond({ error: 'Amizade necessária para enviar DM' });
+          return;
+        }
         getDb().run(
       'INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES (?, ?, ?)',
       [senderId, receiverId, content.trim()],
       function(err) {
-        if (err) return;
+        if (err) {
+          respond({ error: 'Falha ao salvar mensagem' });
+          return;
+        }
         const dmId = this.lastID;
         getDb().get(
           `SELECT dm.*, u.username, u.display_name, u.avatar
            FROM direct_messages dm JOIN users u ON dm.sender_id = u.id WHERE dm.id = ?`,
           [dmId],
-          (err, row) => {
-            if (!err && row) {
-              io.to(`user_${receiverId}`).emit('new_dm', row);
-              socket.emit('new_dm', row);
+          (gErr, row) => {
+            if (gErr || !row) {
+              respond({ error: 'Falha ao carregar mensagem' });
+              return;
             }
+            io.to(`user_${receiverId}`).emit('new_dm', row);
+            socket.emit('new_dm', row);
+            respond({ success: true, message: row });
           }
         );
       }
@@ -727,15 +833,43 @@ io.on('connection', (socket) => {
     const { status } = data || {};
     if (!['online', 'idle', 'dnd', 'invisible'].includes(status)) return;
     const userId = socket.data.user.id;
-    getDb().run('UPDATE users SET status = ? WHERE id = ?', [status, userId]);
-    io.emit('user_status', { userId, status });
+    getDb().run('UPDATE users SET status = ? WHERE id = ?', [status, userId], () => {
+      const effective = getEffectiveStatus(status);
+      broadcastPresenceToFriends(userId, effective);
+      // Sync to own other devices as well
+      io.to(`user_${userId}`).emit('user_status', { userId, status: effective });
+    });
   });
 
   socket.on('disconnect', () => {
     const userId = socket.data.user?.id;
-    if (!userId) return;
-    getDb().run('UPDATE users SET status = ? WHERE id = ?', ['offline', userId]);
-    io.emit('user_status', { userId, status: 'offline' });
+    if (userId) {
+      const set = activeSocketsByUser.get(userId);
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) {
+          activeSocketsByUser.delete(userId);
+          // Grace period to handle quick reconnections without flicker
+          const timer = setTimeout(() => {
+            pendingOfflineTimers.delete(userId);
+            // Only mark offline if still no socket after grace
+            if (activeSocketsByUser.has(userId)) return;
+            getDb().get('SELECT status FROM users WHERE id = ?', [userId], (gErr, row) => {
+              const dbStatus = row?.status;
+              if (dbStatus === 'invisible') {
+                // Keep invisible preference, but ensure friends see offline (already)
+                broadcastPresenceToFriends(userId, 'offline');
+                return;
+              }
+              getDb().run('UPDATE users SET status = ? WHERE id = ?', ['offline', userId], () => {
+                broadcastPresenceToFriends(userId, 'offline');
+              });
+            });
+          }, 2500);
+          pendingOfflineTimers.set(userId, timer);
+        }
+      }
+    }
 
     // Remove from voice channels
     for (const [channelId, channelUsers] of voiceChannels.entries()) {

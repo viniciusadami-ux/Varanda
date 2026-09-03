@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1"
   },
   "//": "JWT_SECRET must be at least 32 chars. Set via environment before running `npm run server` (e.g. export JWT_SECRET=...)",
   "dependencies": {

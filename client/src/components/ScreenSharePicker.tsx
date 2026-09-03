@@ -185,7 +185,7 @@ export function ScreenSharePicker({
               />
               <SourceGroup
                 id='share-source-windows'
-                title='Janelas'
+                title='Janelas e aplicativos'
                 sources={groupedSources.window}
                 selectedSourceId={selectedSourceId}
                 onSelect={setSelectedSourceId}

@@ -25,6 +25,14 @@ import type {
   VoiceParticipant,
 } from '@/types';
 
+function isUserStatus(value: unknown): value is UserStatus {
+  return value === 'online' ||
+    value === 'offline' ||
+    value === 'idle' ||
+    value === 'dnd' ||
+    value === 'invisible';
+}
+
 export function useSocketBridge() {
   const token = useAppStore((s) => s.token);
   const user = useAppStore((s) => s.user);
@@ -123,6 +131,21 @@ export function useSocketBridge() {
 
     const onUserStatus = (payload: { userId: number; status: UserStatus }) => {
       setPresence(payload.userId, payload.status);
+    };
+
+    const onPresenceSnapshot = (
+      payload: Record<string, UserStatus> | { presence?: Record<string, UserStatus> }
+    ) => {
+      const nestedPresence = 'presence' in payload ? payload.presence : undefined;
+      const snap =
+        nestedPresence && typeof nestedPresence === 'object' ? nestedPresence : payload;
+      if (!snap || typeof snap !== 'object') return;
+      for (const [idStr, status] of Object.entries(snap)) {
+        const uid = Number(idStr);
+        if (Number.isInteger(uid) && isUserStatus(status)) {
+          setPresence(uid, status);
+        }
+      }
     };
 
     const onNewMessage = (message: Message) => {
@@ -319,6 +342,7 @@ export function useSocketBridge() {
 
     socket.on('connect', onConnect);
     socket.on('user_status', onUserStatus);
+    socket.on('presence_snapshot', onPresenceSnapshot);
     socket.on('new_message', onNewMessage);
     socket.on('message_edited', onMessageEdited);
     socket.on('message_deleted', onMessageDeleted);
@@ -350,6 +374,7 @@ export function useSocketBridge() {
     return () => {
       socket.off('connect', onConnect);
       socket.off('user_status', onUserStatus);
+      socket.off('presence_snapshot', onPresenceSnapshot);
       socket.off('new_message', onNewMessage);
       socket.off('message_edited', onMessageEdited);
       socket.off('message_deleted', onMessageDeleted);
