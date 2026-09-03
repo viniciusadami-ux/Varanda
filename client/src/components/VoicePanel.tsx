@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   PhoneOff,
   Mic,
@@ -13,6 +13,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { ScreenSharePicker } from '@/components/ScreenSharePicker';
 import { useAppStore } from '@/store/appStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import {
@@ -46,9 +47,12 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
     screenSharePending,
     setMuted,
     setDeafened,
+    setScreenShareError,
   } = useVoiceStore();
 
   const [copied, setCopied] = useState(false);
+  const [sharePickerOpen, setSharePickerOpen] = useState(false);
+  const shareTriggerRef = useRef<HTMLButtonElement>(null);
 
   const participants = useMemo(() => {
     // Combine the local user with the remote participants from the store
@@ -85,6 +89,9 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
       }),
     [participants, user?.id, screenStream, remoteScreenStreams]
   );
+  const presentationsWithAudio = activeScreenShares.filter(({ stream }) =>
+    stream?.getAudioTracks().some((track) => track.readyState === 'live')
+  ).length;
 
   if (!channel) return null;
 
@@ -104,7 +111,17 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
   const toggleScreenShare = async () => {
     if (!user || !channel || screenSharePending) return;
     if (screenSharing) await stopScreenShare();
-    else await startScreenShare();
+    else if (window.electronAPI) {
+      setScreenShareError(null);
+      setSharePickerOpen(true);
+    } else {
+      await startScreenShare();
+    }
+  };
+
+  const closeSharePicker = () => {
+    setSharePickerOpen(false);
+    requestAnimationFrame(() => shareTriggerRef.current?.focus());
   };
 
   return (
@@ -149,6 +166,27 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
           Desconectar
         </Button>
       </div>
+
+      {activeScreenShares.length > 0 && (
+        <div className='flex flex-wrap items-center justify-between gap-2 border-b border-indigo-400/10 bg-indigo-500/[0.06] px-3 py-2 text-xs sm:px-6'>
+          <span className='flex items-center gap-2 font-semibold text-indigo-200'>
+            <span className='relative flex h-2 w-2'>
+              <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75' />
+              <span className='relative inline-flex h-2 w-2 rounded-full bg-red-500' />
+            </span>
+            Palco ao vivo
+          </span>
+          <span className='text-zinc-400'>
+            {activeScreenShares.length} {activeScreenShares.length === 1 ? 'apresentação' : 'apresentações'}
+            {presentationsWithAudio > 0 && (
+              <span className='ml-2 inline-flex items-center gap-1 text-indigo-200'>
+                <Volume2 className='h-3 w-3' />
+                {presentationsWithAudio} com áudio
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       <div className={`flex-1 overflow-y-auto p-3 sm:p-6 grid ${gridCls} gap-4 content-center mx-auto w-full`}>
         {activeScreenShares.map(({ participant, stream }) => (
@@ -266,6 +304,7 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
         <button
           type="button"
           onClick={toggleScreenShare}
+          ref={shareTriggerRef}
           disabled={screenSharePending}
           aria-pressed={screenSharing}
           aria-label={screenSharing ? 'Parar compartilhamento de tela' : 'Compartilhar tela'}
@@ -313,6 +352,13 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
           <span className="text-xs text-amber-200 max-w-xs truncate">{screenShareError}</span>
         )}
       </div>
+      <ScreenSharePicker
+        open={sharePickerOpen}
+        pending={screenSharePending}
+        shareError={screenShareError}
+        onClose={closeSharePicker}
+        onStarted={closeSharePicker}
+      />
     </div>
   );
 }
