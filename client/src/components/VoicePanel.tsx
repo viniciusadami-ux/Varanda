@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   PhoneOff,
   Mic,
@@ -15,15 +15,12 @@ import {
 import { Button } from '@/components/ui';
 import { useAppStore } from '@/store/appStore';
 import { useVoiceStore } from '@/store/voiceStore';
-import { socketEmit } from '@/lib/socket';
 import {
-  attachCameraStreamToAllPeers,
-  attachLocalStreamToAllPeers,
-  attachScreenStreamToAllPeers,
-  closeAllPeers,
-  removeCameraStreamFromAllPeers,
-  removeScreenStreamFromAllPeers,
-} from '@/lib/webrtc';
+  disconnectVoiceSession,
+  startScreenShare,
+  stopScreenShare,
+  toggleCamera,
+} from '@/lib/voiceSession';
 
 interface VoicePanelProps {
   onOpenSettings: () => void;
@@ -31,7 +28,6 @@ interface VoicePanelProps {
 
 export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
   const user = useAppStore((s) => s.user);
-  const setInVoiceChannel = useAppStore((s) => s.setInVoiceChannel);
   const channel = useAppStore((s) => s.inVoiceChannel);
 
   const {
@@ -39,164 +35,20 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
     deafened,
     cameraOn,
     screenSharing,
-    localStream,
     cameraStream,
     screenStream,
     remoteStreams,
     remoteScreenStreams,
     participants: storeParticipants,
     isSpeaking,
+    micError,
+    screenShareError,
+    screenSharePending,
     setMuted,
     setDeafened,
-    setCameraOn,
-    setScreenSharing,
-    setLocalStream,
-    setCameraStream,
-    setScreenStream,
-    setIsSpeaking,
-    reset,
   } = useVoiceStore();
 
-  const [micError, setMicError] = useState<string | null>(null);
-  const [screenShareError, setScreenShareError] = useState<string | null>(null);
-  const [screenSharePending, setScreenSharePending] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!channel || !user) return;
-    setMicError(null);
-    let stream: MediaStream | null = null;
-    let cancelled = false;
-    navigator.mediaDevices
-      ?.getUserMedia({ audio: true, video: false })
-      .then((s) => {
-        if (cancelled) {
-          s.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        stream = s;
-        s.getAudioTracks().forEach((t) => (t.enabled = !useVoiceStore.getState().muted));
-        setLocalStream(s, channel.id);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setMicError(err?.message ?? 'Falha ao acessar microfone.');
-        setLocalStream(null);
-      });
-    return () => {
-      cancelled = true;
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-      if (useVoiceStore.getState().localStream === stream) setLocalStream(null);
-    };
-  }, [channel?.id]);
-
-  // Apply mute toggle to live track.
-  useEffect(() => {
-    if (!localStream) return;
-    localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
-    if (user && channel) socketEmit.toggleMute(channel.id, user.id, muted);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [muted]);
-
-  useEffect(() => {
-    if (!user || !channel) return;
-    socketEmit.toggleDeafen(channel.id, user.id, deafened);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deafened]);
-
-  // Detect local voice activity from the microphone. We send only changes of
-  // state (speaking/not speaking), never audio or levels, so peers share the
-  // same green speaking indicator without adding media traffic to Socket.IO.
-  useEffect(() => {
-    let audioContext: AudioContext | null = null;
-    let animationFrame: number | null = null;
-    let previousSpeaking = false;
-
-    const publish = (speaking: boolean) => {
-      if (previousSpeaking === speaking) return;
-      previousSpeaking = speaking;
-      setIsSpeaking(speaking);
-      if (user && channel) socketEmit.speakingState(channel.id, user.id, speaking);
-    };
-
-    if (!user || !channel || !localStream || muted || localStream.getAudioTracks().length === 0) {
-      setIsSpeaking(false);
-      if (user && channel) socketEmit.speakingState(channel.id, user.id, false);
-      return;
-    }
-
-    try {
-      audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(localStream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.7;
-      source.connect(analyser);
-      void audioContext.resume().catch(() => undefined);
-
-      const samples = new Uint8Array(analyser.fftSize);
-      const measure = () => {
-        analyser.getByteTimeDomainData(samples);
-        let squaredSum = 0;
-        for (const sample of samples) {
-          const normalized = (sample - 128) / 128;
-          squaredSum += normalized * normalized;
-        }
-        const volume = Math.sqrt(squaredSum / samples.length);
-        // Hysteresis prevents the indicator from flashing on quiet syllables.
-        const threshold = previousSpeaking ? 0.012 : 0.018;
-        publish(volume >= threshold);
-        animationFrame = requestAnimationFrame(measure);
-      };
-      measure();
-    } catch {
-      // Voice continues to work when a browser does not expose Web Audio; only
-      // the visual activity feedback is unavailable in that environment.
-      setIsSpeaking(false);
-    }
-
-    return () => {
-      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-      publish(false);
-      void audioContext?.close();
-    };
-  }, [channel?.id, user?.id, localStream, muted, setIsSpeaking]);
-
-  // Fase B: when localStream becomes available after PCs were created
-  // (race voice_participants before getUserMedia), attach tracks and renegotiate.
-  useEffect(() => {
-    if (!localStream) return;
-    attachLocalStreamToAllPeers().catch((e) =>
-      console.warn('[VoicePanel] attachLocalStream failed', e)
-    );
-  }, [localStream]);
-
-  // Cleanup peers when leaving voice channel (channel becomes null)
-  useEffect(() => {
-    if (!channel) {
-      closeAllPeers();
-    }
-  }, [channel?.id]);
-
-  useEffect(() => {
-    return () => {
-      reset();
-    };
-  }, [reset]);
-
-  useEffect(() => {
-    return () => {
-      screenStream?.getTracks().forEach((track) => track.stop());
-    };
-  }, [screenStream]);
-
-  useEffect(() => {
-    return () => {
-      cameraStream?.getTracks().forEach((track) => track.stop());
-    };
-  }, [cameraStream]);
-
-  if (!channel) return null;
 
   const participants = useMemo(() => {
     // Combine the local user with the remote participants from the store
@@ -234,6 +86,8 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
     [participants, user?.id, screenStream, remoteScreenStreams]
   );
 
+  if (!channel) return null;
+
   const total = participants.length;
   const gridCls =
     total === 1
@@ -246,103 +100,11 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
       ? 'grid-cols-2 md:grid-cols-3 max-w-5xl'
       : 'grid-cols-2 md:grid-cols-4 max-w-6xl';
 
-  const disconnect = () => {
-    setInVoiceChannel(null);
-    closeAllPeers();
-    reset();
-  };
-
-  const stopScreenShare = async (stream = screenStream) => {
-    try {
-      if (stream) await removeScreenStreamFromAllPeers(stream);
-    } finally {
-      setScreenStream(null);
-      stream?.getTracks().forEach((track) => track.stop());
-      setScreenSharing(false);
-      if (user && channel) socketEmit.stopScreenShare(channel.id, user.id);
-    }
-  };
-
+  const disconnect = disconnectVoiceSession;
   const toggleScreenShare = async () => {
     if (!user || !channel || screenSharePending) return;
-    setScreenShareError(null);
-    setScreenSharePending(true);
-    if (!screenSharing) {
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30, max: 30 } },
-          audio: false,
-        });
-        const displayTrack = stream.getVideoTracks()[0];
-        if (!displayTrack) throw new Error('Nenhuma tela foi selecionada.');
-        displayTrack.contentHint = 'detail';
-        setScreenStream(stream);
-        setScreenSharing(true);
-        // Notify peers before the offer so ontrack can associate the incoming
-        // MediaStream with this screen share.
-        socketEmit.startScreenShare(channel.id, user.id, stream.id);
-        await attachScreenStreamToAllPeers();
-        displayTrack.addEventListener('ended', () => {
-          if (useVoiceStore.getState().screenStream === stream) {
-            void stopScreenShare(stream);
-          }
-        });
-      } catch (error) {
-        if (stream) {
-          await removeScreenStreamFromAllPeers(stream);
-          stream.getTracks().forEach((track) => track.stop());
-        }
-        setScreenStream(null);
-        setScreenSharing(false);
-        socketEmit.stopScreenShare(channel.id, user.id);
-        const name = error instanceof DOMException ? error.name : '';
-        setScreenShareError(
-          name === 'NotAllowedError'
-            ? 'Compartilhamento cancelado ou não autorizado.'
-            : 'Não foi possível iniciar o compartilhamento de tela.'
-        );
-      } finally {
-        setScreenSharePending(false);
-      }
-    } else {
-      try {
-        await stopScreenShare();
-      } finally {
-        setScreenSharePending(false);
-      }
-    }
-  };
-
-  const toggleCamera = async () => {
-    if (!user || !channel) return;
-    if (!cameraOn) {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: true });
-        setCameraStream(s);
-        await attachCameraStreamToAllPeers();
-        setCameraOn(true);
-        socketEmit.toggleCamera(channel.id, user.id, true);
-        s.getVideoTracks()[0].addEventListener('ended', () => {
-          if (useVoiceStore.getState().cameraStream !== s) return;
-          void removeCameraStreamFromAllPeers(s);
-          setCameraStream(null);
-          setCameraOn(false);
-          socketEmit.toggleCamera(channel.id, user.id, false);
-        });
-      } catch {
-        setCameraOn(false);
-      }
-    } else {
-      if (cameraStream) {
-        await removeCameraStreamFromAllPeers(cameraStream);
-        setCameraStream(null);
-        cameraStream.getTracks().forEach((track) => track.stop());
-      }
-      if (!cameraStream) setCameraStream(null);
-      setCameraOn(false);
-      socketEmit.toggleCamera(channel.id, user.id, false);
-    }
+    if (screenSharing) await stopScreenShare();
+    else await startScreenShare();
   };
 
   return (
@@ -398,7 +160,7 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
               <video
                 autoPlay
                 playsInline
-                muted={participant.userId === user?.id}
+                muted
                 ref={(element) => {
                   if (element && element.srcObject !== stream) element.srcObject = stream;
                 }}
@@ -437,7 +199,7 @@ export function VoicePanel({ onOpenSettings }: VoicePanelProps) {
                 <video
                   autoPlay
                   playsInline
-                  muted={p.userId === user?.id}
+                  muted
                   ref={(el) => {
                     if (el && stream) el.srcObject = stream;
                   }}

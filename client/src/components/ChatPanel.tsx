@@ -5,7 +5,6 @@ import { useAppStore } from '@/store/appStore';
 import { useServerStore } from '@/store/serverStore';
 import { useMessageStore } from '@/store/messageStore';
 import { useFriendStore } from '@/store/friendStore';
-import { useSocketBridge } from '@/hooks/useSocketBridge';
 import { channelsApi, friendsApi, uploadsApi } from '@/lib/api';
 import { socketEmit } from '@/lib/socket';
 import type { Message } from '@/types';
@@ -55,8 +54,6 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const preserveScrollRef = useRef(false);
-
-  useSocketBridge();
 
   const currentChannel = channels.find((c) => c.id === channelId);
 

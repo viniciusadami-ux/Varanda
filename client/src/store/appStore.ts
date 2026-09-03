@@ -229,11 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setShowProfile: (showProfile) => set({ showProfile }),
   setShowCreateServer: (showCreateServer) => set({ showCreateServer }),
-  setCurrentDmUser: (u) =>
-    set({
-      currentDmUser: u,
-      inVoiceChannel: u ? null : get().inVoiceChannel,
-    }),
+  setCurrentDmUser: (currentDmUser) => set({ currentDmUser }),
 
   setInVoiceChannel: (c) => set({ inVoiceChannel: c }),
 
