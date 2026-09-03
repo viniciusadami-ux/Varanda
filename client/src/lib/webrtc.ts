@@ -51,6 +51,7 @@ const candidatesBeforePeer = new Map<string, RTCIceCandidateInit[]>();
 // Preserve original incoming MediaStreams by user so the late signal can still
 // associate its stream id with the already received display track.
 const remoteSourceStreams = new Map<number, Map<string, MediaStream>>();
+const remoteScreenStreamIds = new Map<number, string>();
 
 // Listeners that want to know when a peer's connection state changes
 // (for UI feedback). Subscribed via onStateChange.
@@ -194,11 +195,13 @@ export async function attachScreenStreamToAllPeers(): Promise<void> {
   }
 }
 
-async function removeVideoStreamFromAllPeers(stream: MediaStream): Promise<void> {
-  const videoTrackIds = new Set(stream.getVideoTracks().map((track) => track.id));
+async function removeStreamTracksFromAllPeers(
+  tracks: MediaStreamTrack[]
+): Promise<void> {
+  const trackIds = new Set(tracks.map((track) => track.id));
   for (const [socketId, entry] of peers.entries()) {
     for (const sender of entry.pc.getSenders()) {
-      if (sender.track && videoTrackIds.has(sender.track.id)) entry.pc.removeTrack(sender);
+      if (sender.track && trackIds.has(sender.track.id)) entry.pc.removeTrack(sender);
     }
     await renegotiateWithLocalTracks(socketId, entry, true);
   }
@@ -206,12 +209,12 @@ async function removeVideoStreamFromAllPeers(stream: MediaStream): Promise<void>
 
 /** Remove this camera stream from each peer before renegotiating the SDP. */
 export async function removeCameraStreamFromAllPeers(cameraStream: MediaStream): Promise<void> {
-  await removeVideoStreamFromAllPeers(cameraStream);
+  await removeStreamTracksFromAllPeers(cameraStream.getVideoTracks());
 }
 
-/** Remove this display stream from each peer before renegotiating the SDP. */
+/** Remove every presentation track (video and optional loopback audio). */
 export async function removeScreenStreamFromAllPeers(screenStream: MediaStream): Promise<void> {
-  await removeVideoStreamFromAllPeers(screenStream);
+  await removeStreamTracksFromAllPeers(screenStream.getTracks());
 }
 
 /**
@@ -220,8 +223,35 @@ export async function removeScreenStreamFromAllPeers(screenStream: MediaStream):
  * voice store, which intentionally remains keyed by userId.
  */
 export function markRemoteScreenShare(userId: number, streamId: string): void {
+  remoteScreenStreamIds.set(userId, streamId);
   const sourceStream = remoteSourceStreams.get(userId)?.get(streamId);
-  if (sourceStream) useVoiceStore.getState().setRemoteScreenStream(userId, sourceStream);
+  if (!sourceStream) return;
+
+  // A presentation audio track may arrive before its Socket.IO announcement.
+  // Remove every track from this source from the stable voice/camera stream so
+  // it is played only by the presentation audio element.
+  const voiceStream = useVoiceStore.getState().remoteStreams[userId];
+  if (voiceStream) {
+    const presentationTrackIds = new Set(sourceStream.getTracks().map((track) => track.id));
+    for (const track of voiceStream.getTracks()) {
+      if (presentationTrackIds.has(track.id)) voiceStream.removeTrack(track);
+    }
+    useVoiceStore.getState().setRemoteStream(
+      userId,
+      voiceStream.getTracks().some((track) => track.readyState === 'live') ? voiceStream : null
+    );
+  }
+  useVoiceStore.getState().setRemoteScreenStream(userId, sourceStream);
+}
+
+export function clearRemoteScreenShare(userId: number): void {
+  const streamId = remoteScreenStreamIds.get(userId);
+  remoteScreenStreamIds.delete(userId);
+  useVoiceStore.getState().setRemoteScreenStream(userId, null);
+  if (!streamId) return;
+  const sources = remoteSourceStreams.get(userId);
+  sources?.delete(streamId);
+  if (sources?.size === 0) remoteSourceStreams.delete(userId);
 }
 
 function buildPeerConnection(peerSocketId: string, role: Role): RTCPeerConnection {
@@ -295,14 +325,6 @@ function buildPeerConnection(peerSocketId: string, role: Role): RTCPeerConnectio
       return;
     }
     socketToUser.set(peerSocketId, userId);
-    const existing = useVoiceStore.getState().remoteStreams[userId];
-    // Audio and camera can arrive in separate MediaStreams after
-    // renegotiation. Keep one stable stream per user so adding video never
-    // replaces their audio element's source.
-    const targetStream = existing ?? new MediaStream();
-    if (!targetStream.getTracks().some((track) => track.id === e.track.id)) {
-      targetStream.addTrack(e.track);
-    }
     const remoteParticipant = useVoiceStore
       .getState()
       .participants.find((participant) => participant.userId === userId);
@@ -312,34 +334,61 @@ function buildPeerConnection(peerSocketId: string, role: Role): RTCPeerConnectio
       sources.set(sourceStream.id, sourceStream);
       remoteSourceStreams.set(userId, sources);
     }
-    const isScreenTrack =
-      e.track.kind === 'video' &&
-      remoteParticipant?.screenSharing === true &&
-      (sourceStream?.id === remoteParticipant.screenStreamId || e.track.contentHint === 'detail');
+
+    // Screen video and loopback audio share the same source MediaStream. Once
+    // either signaling or the display video's contentHint identifies it, keep
+    // every track in remoteScreenStreams and out of remoteStreams. This makes
+    // voice and presentation audio independently playable without duplication.
+    const announcedScreenId =
+      remoteScreenStreamIds.get(userId) ?? remoteParticipant?.screenStreamId ?? null;
+    const inferredDisplayVideo =
+      e.track.kind === 'video' && e.track.contentHint === 'detail' && Boolean(sourceStream);
+    if (inferredDisplayVideo && sourceStream) {
+      remoteScreenStreamIds.set(userId, sourceStream.id);
+    }
+    const isScreenTrack = Boolean(
+      sourceStream &&
+        (sourceStream.id === announcedScreenId || inferredDisplayVideo)
+    );
+
     if (isScreenTrack && sourceStream) {
       useVoiceStore.getState().setRemoteScreenStream(userId, sourceStream);
-    }
-    // Keep stream alive: when track ends, clean up
-    e.track.addEventListener('ended', () => {
-      const cur = useVoiceStore.getState().remoteStreams[userId];
-      if (!cur) return;
-      try { cur.removeTrack(e.track); } catch {}
-      const remaining = cur.getTracks().filter((t) => t.readyState !== 'ended');
-      if (remaining.length === 0) {
-        useVoiceStore.getState().setRemoteStream(userId, null);
-        console.log(`[webrtc] track ended, removed remoteStream for user ${userId}`);
-      } else {
-        useVoiceStore.getState().setRemoteStream(userId, cur);
+    } else {
+      const existing = useVoiceStore.getState().remoteStreams[userId];
+      // Microphone and camera can arrive in separate MediaStreams after
+      // renegotiation. Keep one stable stream per user so camera changes never
+      // replace the voice element's source.
+      const targetStream = existing ?? new MediaStream();
+      if (!targetStream.getTracks().some((track) => track.id === e.track.id)) {
+        targetStream.addTrack(e.track);
       }
-      if (isScreenTrack) useVoiceStore.getState().setRemoteScreenStream(userId, null);
+      useVoiceStore.getState().setRemoteStream(userId, targetStream);
+    }
+
+    // Keep streams alive: when a track ends, clean only its owning stream.
+    e.track.addEventListener('ended', () => {
+      if (isScreenTrack) {
+        const presentation = useVoiceStore.getState().remoteScreenStreams[userId];
+        if (presentation && !presentation.getTracks().some((track) => track.readyState === 'live')) {
+          clearRemoteScreenShare(userId);
+        }
+      } else {
+        const voice = useVoiceStore.getState().remoteStreams[userId];
+        if (voice) {
+          try { voice.removeTrack(e.track); } catch {}
+          const remaining = voice.getTracks().filter((track) => track.readyState !== 'ended');
+          useVoiceStore.getState().setRemoteStream(userId, remaining.length > 0 ? voice : null);
+        }
+      }
       if (sourceStream) {
         const sources = remoteSourceStreams.get(userId);
         sources?.delete(sourceStream.id);
         if (sources?.size === 0) remoteSourceStreams.delete(userId);
       }
     });
-    useVoiceStore.getState().setRemoteStream(userId, targetStream);
-    console.log(`[webrtc] setRemoteStream userId=${userId} stream=${targetStream.id} tracks=${targetStream.getTracks().map((t) => t.kind+':'+t.id).join(',')}`);
+    console.log(
+      `[webrtc] routed ${e.track.kind} track ${e.track.id} for user ${userId} to ${isScreenTrack ? 'presentation' : 'voice/camera'}`
+    );
   });
 
   peers.set(peerSocketId, entry);
@@ -495,6 +544,7 @@ export function closePeer(peerSocketId: string): void {
       useVoiceStore.getState().setRemoteStream(userId, null);
       useVoiceStore.getState().setRemoteScreenStream(userId, null);
       remoteSourceStreams.delete(userId);
+      remoteScreenStreamIds.delete(userId);
       socketToUser.delete(peerSocketId);
       console.log(`[webrtc] cleared remoteStream for user ${userId} (peer ${peerSocketId} already gone)`);
     }
@@ -513,6 +563,7 @@ export function closePeer(peerSocketId: string): void {
     useVoiceStore.getState().setRemoteStream(userId, null);
     useVoiceStore.getState().setRemoteScreenStream(userId, null);
     remoteSourceStreams.delete(userId);
+    remoteScreenStreamIds.delete(userId);
     socketToUser.delete(peerSocketId);
     console.log(`[webrtc] closed peer ${peerSocketId} (user ${userId}) and cleared remoteStream`);
   } else {
@@ -528,6 +579,7 @@ export function closeAllPeers(): void {
   socketToUser.clear();
   candidatesBeforePeer.clear();
   remoteSourceStreams.clear();
+  remoteScreenStreamIds.clear();
   // Ensure any orphan remoteStreams are cleared (voiceStore.reset also does)
   const store = useVoiceStore.getState();
   for (const uid of Object.keys(store.remoteStreams)) {

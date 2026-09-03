@@ -7,4 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLocalIP: () => ipcRenderer.invoke('get-local-ip'),
   getInviteCode: () => ipcRenderer.invoke('get-invite-code'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  listShareSources: () => ipcRenderer.invoke('list-share-sources'),
+  selectShareSource: (selection) => ipcRenderer.invoke('select-share-source', selection),
+  clearShareSelection: () => ipcRenderer.invoke('clear-share-selection'),
 });

@@ -22,5 +22,10 @@ interface Window {
     getLocalIP: () => Promise<string>;
     getInviteCode: () => Promise<string>;
     openExternal: (url: string) => Promise<void>;
+    listShareSources: () => Promise<import('@/types/screenShare').ShareSource[]>;
+    selectShareSource: (
+      selection: import('@/types/screenShare').ShareSourceSelection
+    ) => Promise<{ selected: true }>;
+    clearShareSelection: () => Promise<{ cleared: true }>;
   };
 }
