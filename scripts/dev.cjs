@@ -3,7 +3,14 @@ const { spawn } = require('node:child_process');
 const electronBinary = require('electron');
 
 const PORT = 5173;
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+// A .cmd file cannot be spawned directly by Node on Windows with shell:false
+// (Node 24 returns spawn EINVAL). Run the fixed command through cmd.exe.
+const clientCommand = process.platform === 'win32'
+  ? (process.env.ComSpec || process.env.COMSPEC || 'cmd.exe')
+  : 'npm';
+const clientArgs = process.platform === 'win32'
+  ? ['/d', '/s', '/c', 'npm run client']
+  : ['run', 'client'];
 const profileArgument = process.argv.find((argument) => argument.startsWith('--profile='));
 const profile = profileArgument?.slice('--profile='.length).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
 let clientProcess = null;
@@ -46,7 +53,7 @@ async function main() {
   if (alreadyRunning) {
     console.log(`[Discord 2] Interface existente encontrada em http://localhost:${PORT}; reutilizando-a.`);
   } else {
-    clientProcess = spawn(npm, ['run', 'client'], { stdio: 'inherit', shell: false });
+    clientProcess = spawn(clientCommand, clientArgs, { stdio: 'inherit', shell: false });
     clientProcess.once('exit', (code) => {
       if (!stopping && code !== 0) {
         console.error(`[Discord 2] A interface encerrou com código ${code}.`);
