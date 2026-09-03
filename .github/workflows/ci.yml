@@ -1,0 +1,53 @@
+name: Verificação do Discord 2
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Compilar, testar e auditar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: Instalar dependências do aplicativo
+        run: npm ci
+
+      - name: Instalar dependências do cliente
+        run: npm ci
+        working-directory: client
+
+      - name: Instalar dependências do servidor
+        run: npm ci
+        working-directory: server
+
+      - name: Compilar o cliente
+        run: npm run build
+
+      - name: Executar testes do servidor
+        run: npm test
+        working-directory: server
+
+      - name: Verificar dependências do cliente
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: client
+
+      - name: Verificar dependências do servidor
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: server

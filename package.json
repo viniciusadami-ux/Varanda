@@ -1,0 +1,82 @@
+{
+  "name": "discord2",
+  "version": "1.0.1",
+  "description": "Discord 2 - A private chat app for friends",
+  "main": "app/main.js",
+  "author": "Discord 2 Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "dev:conta1": "node scripts/dev.cjs --profile=conta1",
+    "dev:conta2": "node scripts/dev.cjs --profile=conta2",
+    "client": "cd client && npm run dev",
+    "server": "cd server && npm run dev",
+    "build": "cd client && npm run build",
+    "test": "npm --prefix server test",
+    "audit:dependencies": "npm --prefix client audit --omit=dev --audit-level=high && npm --prefix server audit --omit=dev --audit-level=high",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "dist": "npm run build && electron-builder --win --x64",
+    "install:all": "npm install --prefix client && npm install --prefix server"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.0",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.discord2.app",
+    "productName": "Discord 2",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "asar": true,
+    "files": [
+      "app/**/*",
+      "uploads/**/*",
+      "client/dist/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/{test,tests,__tests__}/**"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server",
+        "filter": ["src/**/*", "package.json", "node_modules/**/*", "!node_modules/**/{test,tests,__tests__}/**"]
+      },
+      {
+        "from": "uploads",
+        "to": "uploads",
+        "filter": ["**/*", "!**/*.map"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Discord 2",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Discord2.exe"
+    }
+  }
+}
