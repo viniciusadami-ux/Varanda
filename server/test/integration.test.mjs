@@ -84,6 +84,7 @@ before(async () => {
       DATABASE_PATH: join(databaseDir, 'discord2.db'),
       UPLOADS_DIR: join(databaseDir, 'uploads'),
       JWT_SECRET: 'test-only-jwt-secret-with-at-least-thirty-two-characters',
+      AUTH_REGISTER_RATE_LIMIT: '20',
       HEALTH_RATE_LIMIT: '2',
       NODE_ENV: 'test',
     },
@@ -248,6 +249,77 @@ test('isola respostas por canal e restringe ações administrativas ao dono', as
     method: 'POST', headers: { Authorization: `Bearer ${owner.token}` }, body: form,
   });
   assert.equal(invalidUpload.status, 400);
+});
+
+test('reentrada de voz apos reconnect nao duplica participante nem sinal de tela', async () => {
+  const owner = await registerUser('reconnect_owner');
+  const guest = await registerUser('reconnect_guest');
+  const headers = { Authorization: `Bearer ${owner.token}`, 'Content-Type': 'application/json' };
+  const { body: created } = await request('/api/servers', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name: 'Servidor reconnect' }),
+  });
+  const { body: detail } = await request(`/api/servers/${created.id}`, {
+    headers: { Authorization: headers.Authorization },
+  });
+  const channel = detail.channels.find((item) => item.type === 'voice');
+  assert.ok(channel);
+  const { body: invite } = await request(`/api/servers/${created.id}/invite`, {
+    method: 'POST',
+    headers,
+  });
+  await request('/api/servers/join', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${guest.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: invite.code }),
+  });
+
+  let ownerSocket = await connectSocket(owner.token);
+  const guestSocket = await connectSocket(guest.token);
+  try {
+    const ownerJoined = waitForEvent(ownerSocket, 'voice_participants');
+    ownerSocket.emit('join_voice', { channelId: channel.id });
+    await ownerJoined;
+    const guestJoined = waitForEvent(guestSocket, 'voice_participants');
+    guestSocket.emit('join_voice', { channelId: channel.id });
+    await guestJoined;
+
+    const ownerLeft = waitForEvent(
+      guestSocket,
+      'user_left_voice',
+      (payload) => payload.userId === owner.user.id
+    );
+    ownerSocket.disconnect();
+    await ownerLeft;
+
+    ownerSocket = await connectSocket(owner.token);
+    const rejoined = waitForEvent(ownerSocket, 'voice_participants');
+    ownerSocket.emit('join_voice', { channelId: channel.id });
+    const snapshot = await rejoined;
+    assert.equal(snapshot.participants.filter((item) => item.userId === owner.user.id).length, 1);
+    assert.deepEqual(snapshot.connectTo, [guestSocket.id]);
+
+    let startedEvents = 0;
+    let stoppedEvents = 0;
+    guestSocket.on('user_screen_share_started', () => { startedEvents += 1; });
+    guestSocket.on('user_screen_share_stopped', () => { stoppedEvents += 1; });
+    ownerSocket.emit('start_screen_share', { channelId: channel.id, streamId: 'reconnect_stream' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    ownerSocket.emit('stop_screen_share', { channelId: channel.id });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(startedEvents, 1);
+    assert.equal(stoppedEvents, 1);
+
+    const repeatedJoin = waitForEvent(ownerSocket, 'voice_participants');
+    ownerSocket.emit('join_voice', { channelId: channel.id });
+    const repeatedSnapshot = await repeatedJoin;
+    assert.equal(repeatedSnapshot.participants.filter((item) => item.userId === owner.user.id).length, 1);
+    assert.equal(new Set(repeatedSnapshot.connectTo).size, repeatedSnapshot.connectTo.length);
+  } finally {
+    ownerSocket.disconnect();
+    guestSocket.disconnect();
+  }
 });
 
 test('mensagens diretas exigem amizade aceita', async () => {
