@@ -62,6 +62,16 @@ export function CallStage({
     [onChangeFocus]
   );
 
+  useEffect(() => {
+    const firstShareUserId = activeScreenShares[0]?.participant.userId;
+    if (
+      firstShareUserId !== undefined &&
+      !activeScreenShares.some((share) => share.participant.userId === effectiveFocusId)
+    ) {
+      handleSelectFocus(firstShareUserId);
+    }
+  }, [activeScreenShares, effectiveFocusId, handleSelectFocus]);
+
   const toggleFullscreen = useCallback(async () => {
     const el = stageRef.current;
     if (!el) return;
