@@ -126,6 +126,17 @@ export function useSocketBridge() {
       setPresence(payload.userId, payload.status);
     };
 
+    const onPresenceSnapshot = (payload: Record<string, UserStatus> | { presence?: Record<string, UserStatus> }) => {
+      const snap = (payload as any)?.presence ?? payload;
+      if (!snap || typeof snap !== 'object') return;
+      for (const [idStr, status] of Object.entries(snap)) {
+        const uid = Number(idStr);
+        if (Number.isInteger(uid) && typeof status === 'string') {
+          setPresence(uid, status as UserStatus);
+        }
+      }
+    };
+
     const onNewMessage = (message: Message) => {
       appendMessage(message.channel_id, message);
     };
@@ -291,6 +302,7 @@ export function useSocketBridge() {
 
     socket.on('connect', onConnect);
     socket.on('user_status', onUserStatus);
+    socket.on('presence_snapshot', onPresenceSnapshot);
     socket.on('new_message', onNewMessage);
     socket.on('message_edited', onMessageEdited);
     socket.on('message_deleted', onMessageDeleted);
@@ -323,6 +335,7 @@ export function useSocketBridge() {
     return () => {
       socket.off('connect', onConnect);
       socket.off('user_status', onUserStatus);
+      socket.off('presence_snapshot', onPresenceSnapshot);
       socket.off('new_message', onNewMessage);
       socket.off('message_edited', onMessageEdited);
       socket.off('message_deleted', onMessageDeleted);
