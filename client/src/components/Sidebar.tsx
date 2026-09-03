@@ -12,6 +12,7 @@ import {
   X,
   Copy,
   Check,
+  Home,
 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { channelsApi, friendsApi, serversApi } from '@/lib/api';
@@ -80,6 +81,29 @@ export function ServerRail() {
 
   return (
     <div className="w-[72px] min-w-[72px] bg-secondary flex flex-col items-center py-3 gap-2 overflow-y-auto scrollbar-thin">
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            setActivePanel('home');
+            setCurrentServer(null);
+            setChannels([]);
+            setCurrentChannelId(null);
+            setCurrentDmUser(null);
+          }}
+          className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
+            activePanel === 'home'
+              ? 'bg-primary text-white rounded-2xl'
+              : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-primary/20 hover:rounded-xl'
+          }`}
+          aria-label="Início"
+        >
+          <Home className="w-5 h-5" />
+        </button>
+        {activePanel === 'home' && (
+          <span className="absolute -left-[6px] top-1/2 -translate-y-1/2 w-1 h-10 bg-white rounded-r-full transition-all" />
+        )}
+      </div>
       <div className="relative">
         <button
           type="button"

@@ -7,9 +7,9 @@ import { useServerStore } from '@/store/serverStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import type { Channel, User } from '@/types';
 
-export type Screen = 'connection' | 'login' | 'register' | 'app';
+export type Screen = 'connection' | 'login' | 'register' | 'app' | 'loading';
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type ActivePanel = 'chat' | 'friends' | 'settings';
+export type ActivePanel = 'home' | 'chat' | 'friends' | 'settings';
 export type UserStatusLocal = 'online' | 'idle' | 'dnd' | 'invisible' | 'offline';
 
 interface ServerConnection {
@@ -107,9 +107,61 @@ function computeDark(theme: ThemeMode): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
+function resolveBaseForValidation(): string {
+  try {
+    const envBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+    if (envBase) return envBase.replace(/\/$/, '');
+    const host = localStorage.getItem(STORAGE_KEYS.serverUrl) || 'localhost';
+    const port = localStorage.getItem(STORAGE_KEYS.serverPort) || '3000';
+    const hasProtocol = /^https?:\/\//i.test(host);
+    const candidate = hasProtocol ? host : `http://${host}`;
+    const url = new URL(candidate);
+    if (!url.port && port && /^\d{1,5}$/.test(port)) url.port = port;
+    url.pathname = ''; url.search = ''; url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return 'http://localhost:3000';
+  }
+}
+
+async function validateSession(token: string) {
+  try {
+    const baseURL = resolveBaseForValidation();
+    const res = await fetch(`${baseURL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`invalid token ${res.status}`);
+    const user = (await res.json()) as User;
+    const normalized: User = {
+      id: user.id,
+      username: user.username,
+      displayName: (user as any).displayName ?? (user as any).display_name ?? user.username,
+      email: user.email,
+      avatar: user.avatar,
+      status: user.status,
+      createdAt: (user as any).createdAt ?? (user as any).created_at,
+    };
+    try { localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(normalized)); } catch { /* ignore */ }
+    useAppStore.setState({ user: normalized, screen: 'app', activePanel: 'home', currentDmUser: null });
+    // Ensure server lists are cleared (no auto-select channel/server)
+    useServerStore.getState().reset();
+  } catch {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.token);
+      localStorage.removeItem(STORAGE_KEYS.user);
+    } catch { /* ignore */ }
+    disconnectSocket();
+    useAppStore.setState({ token: null, user: null, screen: 'connection', activePanel: 'home', currentDmUser: null, inVoiceChannel: null });
+    useServerStore.getState().reset();
+    useMessageStore.getState().reset();
+    useFriendStore.getState().reset();
+    useVoiceStore.getState().reset();
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   screen: 'connection',
-  activePanel: 'chat',
+  activePanel: 'home',
   theme: 'dark',
   darkMode: true,
   token: null,
@@ -158,7 +210,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // re-create it so the new token is used in the next handshake.
     if (token) refreshSocketAuth();
     else disconnectSocket();
-    set({ token, user });
+    if (token && user) {
+      // After login/register go to home, clear stale DM/server selections but keep voice alive
+      useServerStore.getState().reset();
+      set({ token, user, activePanel: 'home', currentDmUser: null, screen: 'app' });
+    } else {
+      set({ token, user });
+    }
   },
   setUser: (user) => {
     try {
@@ -191,7 +249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       user: null,
       currentDmUser: null,
       inVoiceChannel: null,
-      activePanel: 'chat',
+      activePanel: 'home',
       showProfile: false,
       showCreateServer: false,
       screen: 'connection',
@@ -232,22 +290,37 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCurrentDmUser: (u) =>
     set({
       currentDmUser: u,
-      inVoiceChannel: u ? null : get().inVoiceChannel,
     }),
 
   setInVoiceChannel: (c) => set({ inVoiceChannel: c }),
 
   initialize: () => {
     const { token, user, theme, serverUrl, serverPort } = readLocal();
-    set({
-      token,
-      user,
-      theme,
-      serverUrl,
-      serverPort,
-      darkMode: computeDark(theme),
-      screen: token ? 'app' : 'connection',
-      activePanel: 'chat',
-    });
+    if (token) {
+      set({
+        token,
+        user,
+        theme,
+        serverUrl,
+        serverPort,
+        darkMode: computeDark(theme),
+        screen: 'loading',
+        activePanel: 'home',
+        currentDmUser: null,
+      });
+      void validateSession(token);
+    } else {
+      set({
+        token: null,
+        user: null,
+        theme,
+        serverUrl,
+        serverPort,
+        darkMode: computeDark(theme),
+        screen: 'connection',
+        activePanel: 'home',
+        currentDmUser: null,
+      });
+    }
   },
 }));

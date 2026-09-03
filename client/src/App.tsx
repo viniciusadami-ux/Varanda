@@ -21,6 +21,16 @@ export default function App() {
     else html.classList.remove('dark');
   }, [darkMode]);
 
+  if (screen === 'loading') {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">Validando sessão…</p>
+        </div>
+      </div>
+    );
+  }
   if (screen === 'connection') {
     return (
       <ConnectionScreen

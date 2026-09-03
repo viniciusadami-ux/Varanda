@@ -12,6 +12,7 @@ import { ChatPanel } from '@/components/ChatPanel';
 import { VoicePanel } from '@/components/VoicePanel';
 import { SettingsPage } from '@/components/SettingsPage';
 import { ProfileModal, CreateServerModal } from '@/components/Modals';
+import { HomePanel } from '@/components/Home';
 import { serversApi } from '@/lib/api';
 
 export function AppShell() {
@@ -48,6 +49,7 @@ export function AppShell() {
   }, [token, currentServer?.id, serverUrl, serverPort]);
 
   const currentChannel = channels.find((c) => c.id === currentChannelId);
+  const showHome = activePanel === 'home';
   const showFriends = activePanel === 'friends' && !dmUser;
   const inVoice = currentChannel?.type === 'voice' && inVoiceChannel?.id === currentChannel.id;
   const openSettings = () => setSettingsOpen(true);
@@ -88,31 +90,51 @@ export function AppShell() {
     }
   };
 
+  // Home integration (commit isolado): mantém VoicePanel vivo; home não desmonta chamada.
+  // Alterado trecho: adicionado showHome, render condicional de HomePanel e sidebar condicional para home.
   return (
     <div className="relative h-full w-full flex bg-background text-foreground overflow-hidden">
       <div className="flex">
         <ServerRail />
-        <div className="relative">
-          {activePanel === 'friends' || !currentServer ? (
-            <FriendsSidebar />
-          ) : (
-            <ChannelSidebar />
-          )}
-          <button
-            ref={settingsTriggerRef}
-            type="button"
-            onClick={openSettings}
-            className="absolute bottom-16 right-2 z-10 p-1.5 rounded-full bg-card border border-border text-muted-foreground hover:text-foreground shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            title="Configurações"
-            aria-label="Abrir configurações"
-          >
-            <SettingsIcon className="w-4 h-4" />
-          </button>
-        </div>
+        {showHome ? (
+          <div className="relative hidden sm:block">
+            <div className="w-0" />
+            <button
+              ref={settingsTriggerRef}
+              type="button"
+              onClick={openSettings}
+              className="absolute bottom-4 right-2 z-10 p-1.5 rounded-full bg-card border border-border text-muted-foreground hover:text-foreground shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              title="Configurações"
+              aria-label="Abrir configurações"
+            >
+              <SettingsIcon className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            {activePanel === 'friends' || !currentServer ? (
+              <FriendsSidebar />
+            ) : (
+              <ChannelSidebar />
+            )}
+            <button
+              ref={settingsTriggerRef}
+              type="button"
+              onClick={openSettings}
+              className="absolute bottom-16 right-2 z-10 p-1.5 rounded-full bg-card border border-border text-muted-foreground hover:text-foreground shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              title="Configurações"
+              aria-label="Abrir configurações"
+            >
+              <SettingsIcon className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {showFriends ? (
+        {showHome ? (
+          <HomePanel />
+        ) : showFriends ? (
           <FriendsFullView />
         ) : inVoice ? (
           <VoicePanel onOpenSettings={openSettings} />

@@ -12,6 +12,7 @@ interface Props {
 export function RegisterScreen({ onBack, onLogin }: Props) {
   const setAuth = useAppStore((s) => s.setAuth);
   const setScreen = useAppStore((s) => s.setScreen);
+  const setActivePanel = useAppStore((s) => s.setActivePanel);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,6 +37,7 @@ export function RegisterScreen({ onBack, onLogin }: Props) {
         password,
       });
       setAuth(res.token, res.user);
+      setActivePanel('home');
       setScreen('app');
     } catch (err: any) {
       const message =

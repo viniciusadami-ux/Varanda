@@ -12,6 +12,7 @@ interface Props {
 export function LoginScreen({ onBack, onRegister }: Props) {
   const setAuth = useAppStore((s) => s.setAuth);
   const setScreen = useAppStore((s) => s.setScreen);
+  const setActivePanel = useAppStore((s) => s.setActivePanel);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,7 @@ export function LoginScreen({ onBack, onRegister }: Props) {
     try {
       const res = await authApi.login({ email: email.trim(), password });
       setAuth(res.token, res.user);
+      setActivePanel('home');
       setScreen('app');
     } catch (err: any) {
       const message =
