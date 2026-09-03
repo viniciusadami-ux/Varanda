@@ -1,8 +1,11 @@
 const net = require('node:net');
+const http = require('node:http');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const electronBinary = require('electron');
 
 const PORT = 5173;
+const SERVER_PORT = 3000;
 // A .cmd file cannot be spawned directly by Node on Windows with shell:false
 // (Node 24 returns spawn EINVAL). Run the fixed command through cmd.exe.
 const clientCommand = process.platform === 'win32'
@@ -14,6 +17,7 @@ const clientArgs = process.platform === 'win32'
 const profileArgument = process.argv.find((argument) => argument.startsWith('--profile='));
 const profile = profileArgument?.slice('--profile='.length).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
 let clientProcess = null;
+let serverProcess = null;
 let electronProcess = null;
 let stopping = false;
 
@@ -41,14 +45,80 @@ async function waitForPort(port, timeoutMs = 30_000) {
   throw new Error(`A interface não iniciou na porta ${port}.`);
 }
 
+function hasDiscordServer() {
+  return new Promise((resolve) => {
+    const request = http.get(
+      { host: '127.0.0.1', port: SERVER_PORT, path: '/health', timeout: 750 },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => {
+          try {
+            const health = JSON.parse(body);
+            resolve(response.statusCode === 200 && health?.status === 'ok' && health?.service === 'discord2');
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+    );
+    request.once('error', () => resolve(false));
+    request.once('timeout', () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForDiscordServer(timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await hasDiscordServer()) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`O servidor não iniciou na porta ${SERVER_PORT}.`);
+}
+
+async function ensureServer() {
+  if (await hasDiscordServer()) {
+    console.log(`[Discord 2] Servidor existente encontrado em http://localhost:${SERVER_PORT}; reutilizando-o.`);
+    return;
+  }
+
+  if (await isPortInUse(SERVER_PORT)) {
+    throw new Error(`A porta ${SERVER_PORT} está em uso por outro programa. Feche-o ou escolha outra porta.`);
+  }
+
+  const serverDirectory = path.join(__dirname, '..', 'server');
+  console.log(`[Discord 2] Iniciando servidor local em http://localhost:${SERVER_PORT}...`);
+  serverProcess = spawn(process.execPath, ['src/index.js'], {
+    cwd: serverDirectory,
+    stdio: 'inherit',
+    shell: false,
+    env: { ...process.env, PORT: String(SERVER_PORT), NODE_ENV: 'development' },
+  });
+  serverProcess.once('exit', (code) => {
+    if (!stopping && code !== 0) {
+      console.error(`[Discord 2] O servidor encerrou com código ${code}.`);
+      stopChildren();
+      process.exitCode = code || 1;
+    }
+  });
+  await waitForDiscordServer();
+}
+
 function stopChildren() {
   if (stopping) return;
   stopping = true;
   if (electronProcess && !electronProcess.killed) electronProcess.kill();
   if (clientProcess && !clientProcess.killed) clientProcess.kill();
+  if (serverProcess && !serverProcess.killed) serverProcess.kill();
 }
 
 async function main() {
+  await ensureServer();
+
   const alreadyRunning = await isPortInUse(PORT);
   if (alreadyRunning) {
     console.log(`[Discord 2] Interface existente encontrada em http://localhost:${PORT}; reutilizando-a.`);
