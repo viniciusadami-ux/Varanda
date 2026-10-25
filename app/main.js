@@ -8,7 +8,7 @@ const http = require('http');
 // Each development instance can receive a separate profile from scripts/dev.cjs.
 // Without this, two Electron windows share localStorage (including d2_token),
 // and a reconnect can authenticate one window as the other account.
-const requestedProfile = process.env.DISCORD2_PROFILE?.trim();
+const requestedProfile = process.env.VARANDA_PROFILE?.trim();
 if (requestedProfile) {
   const safeProfile = requestedProfile.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
   if (safeProfile) {
@@ -63,7 +63,7 @@ function getLocalServerJwtSecret() {
 }
 
 const isDev = !app.isPackaged;
-const configuredPort = Number(process.env.DISCORD2_SERVER_PORT || 3000);
+const configuredPort = Number(process.env.VARANDA_SERVER_PORT || 3000);
 const SERVER_PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
   ? configuredPort
   : 3000;
@@ -156,7 +156,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'Discord 2',
+    title: 'Varanda',
     icon: path.join(__dirname, '../assets/icon.png'),
     webPreferences: {
       nodeIntegration: false,
@@ -291,7 +291,7 @@ function startServer() {
           response.on('end', () => {
             try {
               const health = JSON.parse(body);
-              if (response.statusCode === 200 && health?.status === 'ok' && health?.service === 'discord2') {
+              if (response.statusCode === 200 && health?.status === 'ok' && health?.service === 'varanda') {
                 settle();
                 return;
               }
@@ -309,7 +309,7 @@ function startServer() {
     };
 
     try {
-      // A distributed Discord 2 must not depend on a separate Node.js
+      // A distributed Varanda must not depend on a separate Node.js
       // installation. In production, Electron can run its bundled Node
       // runtime when ELECTRON_RUN_AS_NODE is set.
       const serverExecutable = isDev ? 'node' : process.execPath;
@@ -333,7 +333,7 @@ function startServer() {
       const text = data.toString();
       output += text;
       console.log(`[Server]: ${text}`);
-      if (output.includes(`Discord 2 Server running on port ${SERVER_PORT}`)) settle();
+      if (output.includes(`Varanda Server running on port ${SERVER_PORT}`)) settle();
     });
 
     serverProcess.stderr.on('data', (data) => {

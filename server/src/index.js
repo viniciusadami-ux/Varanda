@@ -143,7 +143,7 @@ const healthRateLimit = createIpRateLimiter({
 });
 
 app.get('/health', healthRateLimit, (_req, res) => {
-  res.json({ status: 'ok', service: 'discord2', version: '1.0.0' });
+  res.json({ status: 'ok', service: 'varanda', version: '1.0.0' });
 });
 
 // Serve uploaded files with strict security headers. Force attachment so the
@@ -892,8 +892,8 @@ io.on('connection', (socket) => {
 });
 
 httpServer.listen(PORT, HOST, () => {
-  console.log(`Discord 2 Server running on port ${PORT}`);
-  console.log(`Discord 2 Server bound to ${HOST}`);
+  console.log(`Varanda Server running on port ${PORT}`);
+  console.log(`Varanda Server bound to ${HOST}`);
 });
 
 export { io, UPLOADS_DIR };

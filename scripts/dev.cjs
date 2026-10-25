@@ -45,7 +45,7 @@ async function waitForPort(port, timeoutMs = 30_000) {
   throw new Error(`A interface não iniciou na porta ${port}.`);
 }
 
-function hasDiscordServer() {
+function hasVarandaServer() {
   return new Promise((resolve) => {
     const request = http.get(
       { host: '127.0.0.1', port: SERVER_PORT, path: '/health', timeout: 750 },
@@ -56,7 +56,7 @@ function hasDiscordServer() {
         response.on('end', () => {
           try {
             const health = JSON.parse(body);
-            resolve(response.statusCode === 200 && health?.status === 'ok' && health?.service === 'discord2');
+            resolve(response.statusCode === 200 && health?.status === 'ok' && health?.service === 'varanda');
           } catch {
             resolve(false);
           }
@@ -71,18 +71,18 @@ function hasDiscordServer() {
   });
 }
 
-async function waitForDiscordServer(timeoutMs = 30_000) {
+async function waitForVarandaServer(timeoutMs = 30_000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (await hasDiscordServer()) return;
+    if (await hasVarandaServer()) return;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`O servidor não iniciou na porta ${SERVER_PORT}.`);
 }
 
 async function ensureServer() {
-  if (await hasDiscordServer()) {
-    console.log(`[Discord 2] Servidor existente encontrado em http://localhost:${SERVER_PORT}; reutilizando-o.`);
+  if (await hasVarandaServer()) {
+    console.log(`[Varanda] Servidor existente encontrado em http://localhost:${SERVER_PORT}; reutilizando-o.`);
     return;
   }
 
@@ -91,7 +91,7 @@ async function ensureServer() {
   }
 
   const serverDirectory = path.join(__dirname, '..', 'server');
-  console.log(`[Discord 2] Iniciando servidor local em http://localhost:${SERVER_PORT}...`);
+  console.log(`[Varanda] Iniciando servidor local em http://localhost:${SERVER_PORT}...`);
   serverProcess = spawn(process.execPath, ['src/index.js'], {
     cwd: serverDirectory,
     stdio: 'inherit',
@@ -100,12 +100,12 @@ async function ensureServer() {
   });
   serverProcess.once('exit', (code) => {
     if (!stopping && code !== 0) {
-      console.error(`[Discord 2] O servidor encerrou com código ${code}.`);
+      console.error(`[Varanda] O servidor encerrou com código ${code}.`);
       stopChildren();
       process.exitCode = code || 1;
     }
   });
-  await waitForDiscordServer();
+  await waitForVarandaServer();
 }
 
 function stopChildren() {
@@ -121,12 +121,12 @@ async function main() {
 
   const alreadyRunning = await isPortInUse(PORT);
   if (alreadyRunning) {
-    console.log(`[Discord 2] Interface existente encontrada em http://localhost:${PORT}; reutilizando-a.`);
+    console.log(`[Varanda] Interface existente encontrada em http://localhost:${PORT}; reutilizando-a.`);
   } else {
     clientProcess = spawn(clientCommand, clientArgs, { stdio: 'inherit', shell: false });
     clientProcess.once('exit', (code) => {
       if (!stopping && code !== 0) {
-        console.error(`[Discord 2] A interface encerrou com código ${code}.`);
+        console.error(`[Varanda] A interface encerrou com código ${code}.`);
         stopChildren();
         process.exitCode = code || 1;
       }
@@ -137,7 +137,7 @@ async function main() {
   electronProcess = spawn(electronBinary, ['.'], {
     stdio: 'inherit',
     shell: false,
-    env: profile ? { ...process.env, DISCORD2_PROFILE: profile } : process.env,
+    env: profile ? { ...process.env, VARANDA_PROFILE: profile } : process.env,
   });
   electronProcess.once('exit', (code) => {
     if (!stopping) stopChildren();
@@ -148,7 +148,7 @@ async function main() {
 process.on('SIGINT', stopChildren);
 process.on('SIGTERM', stopChildren);
 main().catch((error) => {
-  console.error(`[Discord 2] ${error.message}`);
+  console.error(`[Varanda] ${error.message}`);
   stopChildren();
   process.exitCode = 1;
 });

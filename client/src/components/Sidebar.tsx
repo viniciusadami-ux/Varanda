@@ -779,7 +779,7 @@ export function FriendsSidebar() {
         {filter === 'add' && (
           <div className="space-y-2 bg-white/5 rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
-              Você pode adicionar amigos usando o nome de usuário deles no Discord 2.
+              Você pode adicionar amigos usando o nome de usuário deles na Varanda.
             </p>
             <div className="flex gap-2">
               <Input

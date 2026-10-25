@@ -107,7 +107,7 @@ export function ConnectionScreen({ onLogin, onRegister }: Props) {
           {!serverInfo ? (
             <div className="space-y-4">
               <p className="text-white/80 text-sm">
-                Inicie seu próprio servidor Discord 2 para seus amigos se conectarem.
+                Inicie seu próprio servidor Varanda para seus amigos se conectarem.
               </p>
             <Button
               onClick={startHosting}
@@ -236,7 +236,7 @@ export function ConnectionScreen({ onLogin, onRegister }: Props) {
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-6">
       <div className="text-center mb-12 animate-fade-in">
-        <h1 className="text-6xl font-bold text-white mb-4 tracking-tight">Discord 2</h1>
+        <h1 className="text-6xl font-bold text-white mb-4 tracking-tight">Varanda</h1>
         <p className="text-white/80 text-lg">Seu espaço privado para conversar com amigos</p>
       </div>
 

@@ -60,7 +60,7 @@ export function RegisterScreen({ onBack, onLogin }: Props) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h2 className="text-white text-2xl font-semibold">Bem-vindo ao Discord 2!</h2>
+          <h2 className="text-white text-2xl font-semibold">Bem-vindo à Varanda!</h2>
         </div>
 
         <form onSubmit={submit} className="space-y-3">

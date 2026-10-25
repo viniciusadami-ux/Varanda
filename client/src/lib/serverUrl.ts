@@ -20,7 +20,7 @@ export function resolveServerBaseUrl(hostInput?: string | null, portInput?: stri
     const url = new URL(candidate);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error('invalid protocol');
     // A port in the address itself has priority. This makes links such as
-    // https://discord.example.com work without requiring the user to clear
+    // https://varanda.example.com work without requiring the user to clear
     // the separate port field.
     if (!url.port && rawPort && /^\d{1,5}$/.test(rawPort)) url.port = rawPort;
     url.pathname = '';

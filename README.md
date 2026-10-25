@@ -1,47 +1,61 @@
-# Discord 2
+# Varanda
 
 Um aplicativo de chat e voz privado para você e seus amigos — inspirado no Discord, mas com identidade própria.
 
 ## Sobre
 
-O **Discord 2** permite que você crie seu próprio servidor de chat e voz para até **8 pessoas** simultâneas. Funciona em rede local ou pela internet (se o host tiver IP externo configurado).
+A **Varanda** permite que você crie seu próprio servidor de chat e voz para até **8 pessoas** simultâneas. Funciona na rede local ou pela internet com Tailscale, sem precisar de IP fixo.
 
-## Usar com amigos pela internet
+## Jogar com amigos pela internet (Tailscale)
 
-Enviar apenas o `.exe` não conecta todos automaticamente: cada pessoa precisa
-usar o mesmo servidor online. A estrutura pronta para hospedar o backend com
-HTTPS e TURN está em [`deploy/README.md`](deploy/README.md). TURN é o que faz
-voz, câmera e compartilhamento de tela continuarem funcionando entre redes
-domésticas diferentes.
+O jeito mais simples de jogar fora da rede de casa é pelo [Tailscale](https://tailscale.com/download). Ele monta uma rede privada entre os computadores, então ninguém precisa abrir porta no roteador nem ter IP fixo. O plano gratuito do Tailscale atende até 6 pessoas.
+
+### No computador de quem hospeda
+
+1. Instale o Tailscale e entre com uma conta (Google, Microsoft ou GitHub).
+2. Clique no ícone do Tailscale na bandeja do Windows e anote o endereço que começa com `100.`. É esse número que os amigos vão usar, não o `192.168.x.x` da rede local.
+3. Abra a Varanda, clique em **Hospedar** e depois em **Iniciar Servidor**.
+4. Anote a **porta** que aparecer (normalmente `3000`).
+5. Se o Windows perguntar se pode liberar o aplicativo no firewall, marque **Redes privadas**.
+
+### Para cada amigo
+
+1. Instale o Tailscale e entre com a conta dele.
+2. Aceite o convite que o host enviou.
+3. Abra a Varanda e clique em **Conectar**.
+4. Preencha o endereço com o `100.x.x.x` do host, a porta `3000` e o código que o host passou.
+5. Clique em **Testar conexão** e depois em **Conectar**. Crie a conta ou faça login.
+
+### Como convidar
+
+No painel do Tailscale, abra **Machines**, encontre o computador do host e clique em **Share**.
+
+- **Link:** escolha "Copy invite link" e mande no grupo. O link serve até 1.000 usos e expira em 30 dias.
+- **Email:** cada pessoa recebe um convite individual.
+
+O convite dá acesso só àquele computador, não à sua rede inteira. Quem recebe precisa ter conta no Tailscale e aceitar o convite. Também dá para convidar todos para o mesmo tailnet em **Users**, mas aí cada um enxerga todas as suas máquinas.
+
+### Se não conectar
+
+- Confirme que os dois lados aparecem como conectados no Tailscale.
+- No navegador do amigo, abra `http://100.x.x.x:3000/health`. Se responder `{"status":"ok"}`, o servidor está no ar e o problema é o app ou o firewall.
+- Libere a Varanda no firewall do Windows para **Redes privadas**.
+- Voz, webcam e compartilhamento de tela dispensam TURN nesse modo, porque os computadores já se enxergam direto pela rede do Tailscale.
 
 ## Instalação
 
-### Para o Host (Quem vai hospedar o servidor)
+1. Baixe o `Varanda-Setup.exe`.
+2. Execute o instalador e abra o aplicativo.
 
-1. Baixe o `Discord2-Setup.exe`
-2. Execute o instalador
-3. Abra o aplicativo
-4. Clique em **Hospedar**
-5. Clique em **Iniciar Servidor**
-6. Anote o **IP**, **Porta** e **Código**
-7. Envie esses dados para seus amigos
+### Testar sozinho, no mesmo computador
 
-### Para os Amigos (Quem vai conectar)
-
-1. Baixe e instale o `Discord2-Setup.exe`
-2. Abra o aplicativo
-3. Clique em **Conectar**
-4. Digite o **IP** do host
-5. Digite a **Porta** (padrão: 3000)
-6. Clique em **Testar conexão** e depois em **Conectar**
-7. Crie sua conta ou faça login
-
-### Testar Localmente
-
-Para testar no mesmo computador:
-- IP: `localhost`
+- Endereço: `localhost`
 - Porta: `3000`
-- Código: (deixe em branco)
+- Código: pode deixar em branco
+
+### Hospedagem em VPS (opcional)
+
+Se você quiser um endereço público, com HTTPS e TURN, sem depender do Tailscale, a estrutura com Docker e Caddy está em [`deploy/README.md`](deploy/README.md).
 
 ## Funcionalidades
 
@@ -66,7 +80,7 @@ Para testar no mesmo computador:
 ## Estrutura do Projeto
 
 ```
-discord2/
+varanda/
 ├── app/              # Electron main + preload
 ├── client/           # Frontend React
 │   └── src/

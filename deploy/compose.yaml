@@ -8,12 +8,12 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
-      DATABASE_PATH: /data/discord2.db
+      DATABASE_PATH: /data/varanda.db
       UPLOADS_DIR: /data/uploads
       TRUST_PROXY: "1"
     volumes:
-      - discord2-data:/data
-    networks: [discord2]
+      - varanda-data:/data
+    networks: [varanda]
 
   caddy:
     image: caddy:2-alpine
@@ -28,7 +28,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    networks: [discord2]
+    networks: [varanda]
 
   turn:
     image: coturn/coturn:4.6.3
@@ -49,12 +49,12 @@ services:
       - "3478:3478/tcp"
       - "3478:3478/udp"
       - "49160-49200:49160-49200/udp"
-    networks: [discord2]
+    networks: [varanda]
 
 networks:
-  discord2:
+  varanda:
 
 volumes:
-  discord2-data:
+  varanda-data:
   caddy-data:
   caddy-config:

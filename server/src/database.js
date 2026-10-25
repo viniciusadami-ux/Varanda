@@ -4,7 +4,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DB_PATH = join(__dirname, '../../database/discord2.db');
+const DEFAULT_DB_PATH = join(__dirname, '../../database/varanda.db');
 const DATABASE_PATH = process.env.DATABASE_PATH || DEFAULT_DB_PATH;
 mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 

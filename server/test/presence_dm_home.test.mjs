@@ -94,13 +94,13 @@ async function waitForServer() {
 }
 
 before(async () => {
-  databaseDir = await mkdtemp(join(tmpdir(), 'discord2-presence-'));
+  databaseDir = await mkdtemp(join(tmpdir(), 'varanda-presence-'));
   serverProcess = spawn(process.execPath, ['src/index.js'], {
     cwd: serverRoot,
     env: {
       ...process.env,
       PORT: String(port),
-      DATABASE_PATH: join(databaseDir, 'discord2.db'),
+      DATABASE_PATH: join(databaseDir, 'varanda.db'),
       UPLOADS_DIR: join(databaseDir, 'uploads'),
       JWT_SECRET: 'test-only-jwt-secret-with-at-least-thirty-two-characters-presence',
       NODE_ENV: 'test',

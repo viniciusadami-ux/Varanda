@@ -1,9 +1,9 @@
 {
-  "name": "discord2",
+  "name": "varanda",
   "version": "1.0.1",
-  "description": "Discord 2 - A private chat app for friends",
+  "description": "Varanda - A private chat app for friends",
   "main": "app/main.js",
-  "author": "Discord 2 Team",
+  "author": "Varanda Team",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -27,8 +27,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.discord2.app",
-    "productName": "Discord 2",
+    "appId": "com.varanda.app",
+    "productName": "Varanda",
     "directories": {
       "output": "dist-electron"
     },
@@ -72,12 +72,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Discord 2",
+      "shortcutName": "Varanda",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
     },
     "portable": {
-      "artifactName": "Discord2.exe"
+      "artifactName": "Varanda.exe"
     }
   }
 }

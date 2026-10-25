@@ -260,7 +260,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             <div className="max-w-xl space-y-4">
               <h3 className="font-bold text-lg">Conexão do Servidor</h3>
               <p className="text-sm text-muted-foreground">
-                Defina o endereço IP ou host do servidor Discord 2 para jogar na rede local ou internet.
+                Defina o endereço IP ou host do servidor Varanda para jogar na rede local ou internet.
               </p>
               <div>
                 <label className="block text-sm mb-1">Host</label>

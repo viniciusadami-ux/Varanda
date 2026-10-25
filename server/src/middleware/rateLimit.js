@@ -4,7 +4,7 @@ function readPositiveInteger(value, fallback) {
 }
 
 /**
- * Lightweight in-memory limiter for a single Discord 2 server process.
+ * Lightweight in-memory limiter for a single Varanda server process.
  * The key is Express's req.ip, which only honors proxy headers when the host
  * explicitly enables TRUST_PROXY=1 behind a trusted reverse proxy.
  */
